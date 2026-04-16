@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Blur Detection App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+    <div class="container">
+        <h1>Blur Detection System</h1>
+        <p class="subtitle">Upload an image to check whether it is <strong>Blur</strong> or <strong>Sharp</strong></p>
+
+        <form method="POST" enctype="multipart/form-data" class="upload-form">
+            <input type="file" name="image" accept="image/*" required>
+            <button type="submit">Check Image</button>
+        </form>
+
+        {% if img_path %}
+        <div class="result-box">
+            <h2>Prediction Result</h2>
+            <img src="{{ img_path }}" alt="Uploaded Image" class="preview-image">
+            <p class="result-text">The uploaded image is: <span>{{ result }}</span></p>
+        </div>
+        {% endif %}
+    </div>
+
+</body>
+
+</html>
