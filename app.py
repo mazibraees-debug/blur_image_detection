@@ -4,6 +4,7 @@ import torch.nn as nn
 import cv2
 import numpy as np
 import os
+import base64
 
 app = Flask(__name__)
 UPLOAD_FOLDER = "static/uploads"
@@ -40,10 +41,12 @@ model.load_state_dict(torch.load("blur_model.pth", map_location=device, weights_
 model.eval()
 
 # ===== Prediction Function =====
-def predict_image(path):
-    img = cv2.imread(path)
+def predict_image(img):
     img = cv2.resize(img, (128, 128)) / 255.0
     img = torch.tensor(img).permute(2,0,1).float().unsqueeze(0)
+
+    device_target = model.conv[0].weight.device
+    img = img.to(device_target)
 
     with torch.no_grad():
         output = model(img)
@@ -60,13 +63,17 @@ def index():
     if request.method == "POST":
         file = request.files["image"]
         if file:
-            img_path = os.path.join(UPLOAD_FOLDER, file.filename)
-            file.save(img_path)
+            # Vercel relies on a read-only filesystem, so we keep the image in memory
+            file_bytes = np.frombuffer(file.read(), np.uint8)
+            img = cv2.imdecode(file_bytes, cv2.IMREAD_COLOR)
 
-            result = predict_image(img_path)
-            
-            # Use forward slashes for the web URL to ensure it shows up correctly in the browser
-            img_path = f"/{UPLOAD_FOLDER}/{file.filename}"
+            if img is not None:
+                result = predict_image(img)
+                
+                # Convert image to Base64 for the front-end to render without a disk url
+                _, buffer = cv2.imencode('.jpg', img)
+                img_base64 = base64.b64encode(buffer).decode('utf-8')
+                img_path = f"data:image/jpeg;base64,{img_base64}"
 
     return render_template("index.html", result=result, img_path=img_path)
 
