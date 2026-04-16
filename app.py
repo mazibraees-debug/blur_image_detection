@@ -1,6 +1,5 @@
 from flask import Flask, render_template, request
-import torch
-import torch.nn as nn
+import onnxruntime as ort
 import cv2
 import numpy as np
 import os
@@ -10,47 +9,28 @@ app = Flask(__name__)
 UPLOAD_FOLDER = "static/uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# ===== Model (same as training) =====
-class BlurClassifier(nn.Module):
-    def __init__(self):
-        super(BlurClassifier, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(3, 32, 3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2),
-
-            nn.Conv2d(32, 64, 3, padding=1),
-            nn.ReLU(),
-            nn.MaxPool2d(2)
-        )
-        self.fc = nn.Sequential(
-            nn.Linear(64 * 32 * 32, 128),
-            nn.ReLU(),
-            nn.Linear(128, 2)
-        )
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = x.view(x.size(0), -1)
-        return self.fc(x)
-
-# ===== Load Model =====
-device = torch.device("cpu")
-model = BlurClassifier().to(device)
-model.load_state_dict(torch.load("blur_model.pth", map_location=device, weights_only=True))
-model.eval()
+# ===== Load ONNX Model =====
+# We use onnxruntime for inference as it is much lighter than torch
+session = ort.InferenceSession("blur_model.onnx")
+input_name = session.get_inputs()[0].name
+output_name = session.get_outputs()[0].name
 
 # ===== Prediction Function =====
 def predict_image(img):
-    img = cv2.resize(img, (128, 128)) / 255.0
-    img = torch.tensor(img).permute(2,0,1).float().unsqueeze(0)
+    # Preprocess: same as training (Resize to 128x128, normalize to [0,1])
+    img_resized = cv2.resize(img, (128, 128)) / 255.0
+    
+    # Change format from HWC to CHW (standard for PyTorch/ONNX models)
+    img_onnx = np.transpose(img_resized, (2, 0, 1)).astype(np.float32)
+    
+    # Add batch dimension (1, 3, 128, 128)
+    img_onnx = np.expand_dims(img_onnx, axis=0)
 
-    device_target = model.conv[0].weight.device
-    img = img.to(device_target)
-
-    with torch.no_grad():
-        output = model(img)
-        pred = torch.argmax(output, dim=1).item()
+    # Run inference
+    outputs = session.run([output_name], {input_name: img_onnx})
+    
+    # Get prediction (argmax over class probabilities)
+    pred = np.argmax(outputs[0], axis=1)[0]
 
     return "Blur" if pred == 0 else "Sharp"
 
